@@ -1,23 +1,21 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+# utils.py
 """
-Utilities
-~~~~~~~~~
-
 Functions used by more than one PyPhi module or class, or that might be of
 external use.
 """
 
-import math
+import re
 import hashlib
 import numpy as np
 from itertools import chain, combinations
 from scipy.misc import comb
 from scipy.spatial.distance import cdist
 from pyemd import emd
-from . import constants
 from .lru_cache import lru_cache
+from . import constants, config
 
 
 def condition_tpm(tpm, fixed_nodes, state):
@@ -37,99 +35,6 @@ def condition_tpm(tpm, fixed_nodes, state):
     # Obtain the actual conditioned TPM by indexing with the conditioning
     # indices.
     return tpm[conditioning_indices]
-
-
-def state_by_state2state_by_node(tpm):
-    """Convert a state-by-state TPM to a state-by-node TPM.
-
-    The binary representations of the indices of the rows and columns
-    correspond to states of the network.
-
-    .. note::
-        This function uses the convention that that low-order bits correspond
-        to low-index nodes; i.e., the least significant bit gives the state of
-        the first node, the second-least significant bit gives the state of the
-        second node, and so on.
-
-    Args:
-        tpm (list(list) or np.ndarray): A square state-by-state TPM.
-
-    Returns:
-        ``np.ndarray`` -- A state-by-node TPM.
-
-    Examples:
-        >>> from pyphi.utils import state_by_state2state_by_node
-        >>> tpm = np.array([[0.5, 0.5, 0.0, 0.0],
-        ...                 [0.0, 1.0, 0.0, 0.0],
-        ...                 [0.0, 0.2, 0.0, 0.8],
-        ...                 [0.0, 0.3, 0.7, 0.0]])
-        >>> state_by_state2state_by_node(tpm)
-        array([[[ 0.5,  0. ],
-                [ 1. ,  0.8]],
-        <BLANKLINE>
-               [[ 1. ,  0. ],
-                [ 0.3,  0.7]]])
-    """
-    # Cast to np.array.
-    tpm = np.array(tpm)
-    # Validate.
-    if tpm.ndim != 2:
-        raise ValueError("State-by-state TPM must be 2-dimensional.")
-    if tpm.shape[0] != tpm.shape[1]:
-        raise ValueError("State-by-state TPM must be square.")
-    if not np.allclose(tpm.sum(1) == 1, np.ones(tpm.shape[1]),
-                       atol=constants.PRECISION):
-        raise ValueError("Rows of the TPM must sum to 1.")
-    # Get the number of states from the length of one side of the TPM.
-    S = tpm.shape[0]
-    # Get the number of nodes from the number of states.
-    N = int(math.log(S, 2))
-    # Initialize the new state-by node TPM.
-    sbn_tpm = np.zeros(([2] * N + [N]))
-    # Map indices to state-tuples.
-    states = {i: index2state(i, N) for i in range(S)}
-    # Get an array for each node with 1 in positions that correspond to that
-    # node being on in the next state, and a 0 otherwise.
-    node_on = np.array([[states[i][n] for i in range(S)] for n in range(N)])
-    on_probabilities = [tpm * node_on[n] for n in range(N)]
-    for i, state in states.items():
-        # Get the probability of each node being on given the past state i,
-        # i.e., a row of the state-by-node TPM.
-        # Assignt that row to the ith state in the state-by-node TPM.
-        sbn_tpm[state] = [np.sum(on_probabilities[n][i]) for n in range(N)]
-    return sbn_tpm
-
-
-def index2state(i, number_of_nodes):
-    """Convert a decimal integer to a PyPhi state tuple.
-
-    .. note::
-        This function uses the convention that that low-order bits correspond
-        to low-index nodes; i.e., the least significant bit gives the state of
-        the first node, the second-least significant bit gives the state of the
-        second node, and so on.
-
-    Args:
-        index (int): A decimal integer corresponding to a network state.
-
-    Returns:
-        ``tuple(int)`` -- A state-tuple where the |ith| element of the tuple
-            gives the state of the |ith| node.
-
-    Examples:
-        >>> from pyphi.utils import index2state
-        >>> number_of_nodes = 5
-        >>> index2state(1, number_of_nodes)
-        (1, 0, 0, 0, 0)
-        >>> number_of_nodes = 8
-        >>> index2state(7, number_of_nodes)
-        (1, 1, 1, 0, 0, 0, 0, 0)
-    """
-    return tuple((i >> n) & 1 for n in range(number_of_nodes))
-
-
-def nodes2indices(nodes):
-    return tuple(n.index for n in nodes)
 
 
 # TODO test
@@ -153,7 +58,7 @@ def apply_boundary_conditions_to_cm(external_indices, connectivity_matrix):
         # Zero-out row
         cm[i] = 0
         # Zero-out column
-        cm[:,i] = 0
+        cm[:, i] = 0
     return cm
 
 
@@ -289,23 +194,29 @@ def uniform_distribution(number_of_nodes):
             number_of_states).reshape([2] * number_of_nodes)
 
 
-def marginalize_out(node, tpm):
+def marginalize_out(index, tpm, perturb_value=0.5):
     """
     Marginalize out a node from a TPM.
 
     Args:
-        node (Node): The node to be marginalized out.
+        index (list): The index of the node to be marginalized out.
         tpm (np.ndarray): The TPM to marginalize the node out of.
 
     Returns:
         ``np.ndarray`` -- A TPM with the same number of dimensions, with the
         node marginalized out.
     """
-    return tpm.sum(node.index, keepdims=True) / tpm.shape[node.index]
+    if (perturb_value == 0.5):
+        return tpm.sum(index, keepdims=True) / tpm.shape[index]
+    else:
+        tpm = np.average(tpm, index, weights=[1 - perturb_value, perturb_value])
+        return tpm.reshape([i for i in tpm.shape[0:index]] +
+                           [1] + [i for i in tpm.shape[index:]])
 
 
 # TODO memoize this
-def max_entropy_distribution(node_indices, number_of_nodes):
+def max_entropy_distribution(node_indices, number_of_nodes,
+                             perturb_vector=None):
     """
     Return the maximum entropy distribution over a set of nodes.
 
@@ -322,9 +233,27 @@ def max_entropy_distribution(node_indices, number_of_nodes):
         nodes.
     """
     # TODO extend to nonbinary nodes
-    distribution = np.ones([2 if index in node_indices else 1 for index in
-                            range(number_of_nodes)])
-    return distribution / distribution.size
+    if ((perturb_vector is None) or
+            (np.all(perturb_vector == 0.5)) or
+            (len(perturb_vector) == 0)):
+        distribution = np.ones([2 if index in node_indices else 1 for index in
+                                range(number_of_nodes)])
+        return distribution / distribution.size
+    else:
+        perturb_vector = np.array(perturb_vector)
+        bin_states = [bin(x)[2:].zfill(len(node_indices))[::-1] for x in
+                      range(2 ** len(node_indices))]
+        distribution = np.array([
+            np.prod(perturb_vector[[m.start() for m in
+                                    re.finditer('1', bin_states[x])]])
+            * np.prod(1 - perturb_vector[[m.start() for m in
+                                          re.finditer('0', bin_states[x])]])
+            for x in range(2 ** len(node_indices))
+        ])
+        return distribution.reshape(
+            [2 if index in node_indices else 1 for index in
+             range(number_of_nodes)],
+            order='F')
 
 
 # TODO extend to binary nodes
@@ -361,8 +290,7 @@ def bipartition(a):
             for part0_idx, part1_idx in bipartition_indices(len(a))]
 
 
-# TODO use bitwise operators here
-@lru_cache(maxmem=constants.MAXIMUM_CACHE_MEMORY_PERCENTAGE)
+@lru_cache(maxmem=config.MAXIMUM_CACHE_MEMORY_PERCENTAGE)
 def bipartition_indices(N):
     """Returns indices for bipartitions of a sequence.
 
@@ -384,7 +312,7 @@ def bipartition_indices(N):
     if N <= 0:
         return result
     for i in range(2 ** (N - 1)):
-        part = [[],[]]
+        part = [[], []]
         for n in range(N):
             bit = (i >> n) & 1
             part[bit].append(n)
@@ -398,7 +326,7 @@ def bipartition_indices(N):
 
 # TODO cache this persistently; it's exponential
 # TODO extend to nonbinary nodes
-@lru_cache(maxmem=constants.MAXIMUM_CACHE_MEMORY_PERCENTAGE)
+@lru_cache(maxmem=config.MAXIMUM_CACHE_MEMORY_PERCENTAGE)
 def _hamming_matrix(N):
     """Return a matrix of Hamming distances for the possible states of |N|
     binary nodes.

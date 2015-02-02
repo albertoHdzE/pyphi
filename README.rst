@@ -1,12 +1,14 @@
-.. Zenodo DOI badge
-.. image:: https://zenodo.org/badge/4651/wmayner/pyphi.png 
+.. image:: https://zenodo.org/badge/4651/wmayner/pyphi.png
     :target: http://dx.doi.org/10.5281/zenodo.12194
-.. Travis build badge
-.. image:: http://img.shields.io/travis/wmayner/pyphi/develop.svg
+    :alt: Zenodo DOI
+
+.. image:: https://travis-ci.org/wmayner/pyphi.svg?branch=develop
     :target: https://travis-ci.org/wmayner/pyphi
-.. Coveralls.io badge
-.. image:: http://img.shields.io/coveralls/wmayner/pyphi/develop.svg
+    :alt: Travis build
+
+.. image:: https://coveralls.io/repos/wmayner/pyphi/badge.png?branch=develop
     :target: https://coveralls.io/r/wmayner/pyphi?branch=develop
+    :alt: Coveralls.io
 
 *************************
 PyPhi: |phi| for Python 3
@@ -35,72 +37,40 @@ The documentation is also available within the Python interpreter with the
 Installation
 ~~~~~~~~~~~~
 
-Set up a Python 3 virtual environment and install using ``pip install pyphi``.
-
-
-Detailed guide for those unfamiliar with Python
-```````````````````````````````````````````````
-
-This is a Python 3 project, so in order to use it you must install `Python
-3 <https://www.python.org/downloads/>`_.
-
-Once you've installed Python 3, it is highly recommended to set up a **virtual
-environment** in which to install PyPhi. Virtual environments allow different
-projects to isolate their dependencies from one another, so that they don't
-interact in unexpected ways. They also protect your system's version of Python
-from unwanted changes. Please see `this guide
-<http://docs.python-guide.org/en/latest/dev/virtualenvs/>`_ for more
-information.
-
-To do this, you must install ``virtualenv`` and ``virtualenvwrapper``, a `tool
-for manipulating virtual environments
-<http://virtualenvwrapper.readthedocs.org/en/latest/>`_. Both of those tools
-are available on `PyPI <https://pypi.python.org/pypi>`_, the Python package
-index, and can be installed with ``pip``, the command-line utility for
-installing and managing Python packages (``pip`` is installed automatically
-with Python):
-
-.. code:: bash
-
-    pip install virtualenv virtualenvwrapper
-
-Then use ``virtualenvwrapper`` to create a Python 3 virtual environment, like
-so:
-
-.. code:: bash
-
-    mkvirtualenv -p `which python3` <name_of_your_project>
-
-The ``-p `which python3``` option ensures that when the virtual environment is
-activated, the commands ``python`` and ``pip`` will refer to their Python 3
-counterparts.
-
-The virtual environment should have been activated automatically after creating
-it. It can be manually activated with ``workon <name_of_your_project>``, and
-deactivated with ``deactivate``. Remember to activate it before working on your
-project. Also, note that the virtual environment is *not* associated with any
-particular folder; it is associated with a terminal shell.
-
-Finally, you can install PyPhi into your new virtual environment:
+Set up a Python 3 virtual environment and install with
 
 .. code:: bash
 
     pip install pyphi
 
-To install the latest development version (which may be buggy):
+To install the latest development version, which is a work in progress and may
+have bugs, run:
 
 .. code:: bash
 
     pip install "git+https://github.com/wmayner/pyphi@develop#egg=pyphi"
 
+**Note:** this software has only been tested on the Mac OS X and Linux
+operating systems. Windows is not supported, though it might work on with minor
+modifications. If you do get it to work, a writeup of the steps would be much
+appreciated!
 
-Caching with a database
-```````````````````````
+
+Detailed installation guide for Mac OS X
+````````````````````````````````````````
+
+`See here <https://github.com/wmayner/pyphi/blob/develop/INSTALLATION.md>`_.
+
+
+Optional: caching with a database
+`````````````````````````````````
+
 PyPhi stores the results of |Phi| calculations as they're computed in order to
 avoid expensive re-computation. These results can be stored locally on the
-filesystem (the default setting), or in a full-fledged database. Using the
-default caching system is easier and works out of the box, but using a database
-is more robust.
+filesystem (the default setting), or in a full-fledged database. 
+
+Using the default caching system is easier and works out of the box, but using
+a database is more robust.
 
 To use the database-backed caching system, you must install `MongoDB
 <http://www.mongodb.org/>`_. Please see their `installation guide
@@ -165,13 +135,12 @@ Credits
 ~~~~~~~
 
 This code is based on a `previous project <https://github.com/albantakis/iit>`_
-written in Matlab by L. Albantakis, A. Hashmi, A. Nere, U. Olces, P. Rana, and
-B. Shababo.
+written in Matlab by L. Albantakis, M. Oizumi, A. Hashmi, A. Nere, U. Olces, P.
+Rana, and B. Shababo.
 
 Correspondence regarding the Matlab code and the IIT 3.0 paper (below) should
 be directed to Larissa Albantakis, PhD, at `albantakis@wisc.edu
 <mailto:albantakis@wisc.edu>`_.
-
 
 Please cite this paper if you use this code:
 ````````````````````````````````````````````

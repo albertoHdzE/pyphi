@@ -46,7 +46,14 @@ scenarios = [
         s, None,
         [0],
         [0],
-        None,
+        {'partitions': {
+            (Part(mechanism=(), purview=(0,)),
+             Part(mechanism=(0,), purview=())):
+                np.array([0.5, 0.5]).reshape(2, 1, 1, order="F")
+         },
+         'unpartitioned_repertoire':
+            np.array([0.5, 0.5]).reshape(2, 1, 1, order="F"),
+         'phi': 0.0}
     ),
     # }}}
     # With cut {{{

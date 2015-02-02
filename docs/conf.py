@@ -15,7 +15,6 @@
 
 import sys
 import os
-import sphinx_rtd_theme
 
 
 # If extensions (or modules to document with autodoc) are in another directory,
@@ -40,6 +39,8 @@ extensions = [
     'sphinx.ext.mathjax',
     'sphinxcontrib.napoleon'
 ]
+
+mathjax_path = '//cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML'
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
@@ -107,13 +108,29 @@ pygments_style = 'sphinx'
 # Substitutions for math elements to make docstrings more readable
 rst_prolog = """
 .. |big_phi| replace:: :math:`\\Phi`
+.. |small_phi| replace:: :math:`\\varphi`
 .. |phi_max| replace:: :math:`\\varphi^{\\textrm{max}}`
 .. |phi| replace:: :math:`\\varphi`
+.. |A| replace:: :math:`A`
+.. |B| replace:: :math:`B`
+.. |C| replace:: :math:`C`
+.. |D| replace:: :math:`D`
+.. |E| replace:: :math:`E`
+.. |AB| replace:: :math:`AB`
+.. |CD| replace:: :math:`CD`
+.. |ABC| replace:: :math:`ABC`
+.. |CDE| replace:: :math:`CDE`
+.. |(AB / DE) x ([] / C)| replace:: :math:`\\frac{AB}{DE} \\times \\frac{\left[\\;\\right]}{C}`
+.. |(A / CD) x ([] / E)| replace:: :math:`\\frac{A}{CD} \\times \\frac{\left[\\;\\right]}{E}`
+.. |([] / C) x (A / D)| replace:: :math:`\\frac{\\left[\\;\\right]}{C} \\times \\frac{A}{D}`
+.. |small_phi = 1/6| replace:: :math:`\\varphi = \\frac{1}{6}`
+.. |small_phi = 1/10| replace:: :math:`\\varphi = \\frac{1}{10}`
 .. |t_{-1}| replace:: :math:`t_{-1}`
 .. |t_0| replace:: :math:`t_0`
 .. |1,0,0| replace:: :math:`\{1,0,0\}`
 .. |0,1,0| replace:: :math:`\{0,1,0\}`
 .. |0,0,1| replace:: :math:`\{0,0,1\}`
+.. |N_0 = 0, N_1 = 0, N_2 = 1| replace:: :math:`\{N_0 = 0, N_1 = 0, N_2 = 1\}`
 .. |ith| replace:: :math:`i^{\\textrm{th}}`
 .. |r| replace:: :math:`r`
 .. |n| replace:: :math:`n`
@@ -148,7 +165,13 @@ napoleon_use_rtype = True
 
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
-html_theme = 'sphinx_rtd_theme'
+on_rtd = os.environ.get('READTHEDOCS', None) == 'True'
+if not on_rtd:  # only import and set the theme if we're building docs locally
+    import sphinx_rtd_theme
+    html_theme = 'sphinx_rtd_theme'
+    # Add any paths that contain custom themes here, relative to this
+    # directory.
+    html_theme_path = ['_themes'] + [sphinx_rtd_theme.get_html_theme_path()]
 
 # (Optional) Logo. Should be small enough to fit the navbar (ideally 24x24).
 # Path should be relative to the ``_static`` files directory.
@@ -160,9 +183,6 @@ html_logo = "phi.png"
 # html_theme_options = {}
 
 html_sidebars = {'**': ['localtoc.html']}
-
-# Add any paths that contain custom themes here, relative to this directory.
-html_theme_path = ['_themes'] + [sphinx_rtd_theme.get_html_theme_path()]
 
 # The name for this set of Sphinx documents.  If None, it defaults to
 # "<project> v<release> documentation".

@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+# subsystem.py
 """
-Subsystem
-~~~~~~~~~
-
 Represents a candidate set for |phi| calculation.
 """
 
@@ -13,7 +11,7 @@ import psutil
 import numpy as np
 from .constants import DIRECTIONS, PAST, FUTURE
 from .lru_cache import lru_cache
-from . import constants, validate, utils
+from . import constants, config, validate, utils, convert, json
 from .models import Cut, Mip, Part, Mice, Concept
 from .node import Node
 
@@ -34,6 +32,8 @@ class Subsystem:
         size (int): The number of nodes in the subsystem.
         network (Network): The network the subsystem belongs to.
         cut (Cut): The cut that has been applied to this subsystem.
+        connectivity_matrix (np.array): The connectivity matrix after applying the cut
+        perturb_vector (np.array): The vector of perturbation probabilities for each node
         null_cut (Cut): The cut object representing no cut.
         past_tpm (np.array): The TPM conditioned on the past state of the
             external nodes (nodes outside the subsystem).
@@ -62,6 +62,8 @@ class Subsystem:
         # connections to/from external nodes severed.
         self.connectivity_matrix = utils.apply_cut(
             cut, network.connectivity_matrix)
+        # Get the perturbation probabilities for each node in the network
+        self.perturb_vector = network.perturb_vector
         # The TPM conditioned on the past state of the external nodes.
         self.past_tpm = utils.condition_tpm(
             self.network.tpm, self.external_indices,
@@ -116,10 +118,16 @@ class Subsystem:
     def __hash__(self):
         return self._hash
 
+    def json_dict(self):
+        return {
+            'node_indices': json.make_encodable(self.node_indices),
+            'cut': json.make_encodable(self.cut),
+        }
+
     def indices2nodes(self, indices):
         return tuple(n for n in self.nodes if n.index in indices)
 
-    @lru_cache(maxmem=constants.MAXIMUM_CACHE_MEMORY_PERCENTAGE)
+    @lru_cache(maxmem=config.MAXIMUM_CACHE_MEMORY_PERCENTAGE)
     def cause_repertoire(self, mechanism, purview):
         """Return the cause repertoire of a mechanism over a purview.
 
@@ -145,14 +153,20 @@ class Subsystem:
         # If the mechanism is empty, nothing is specified about the past state
         # of the purview, so just return the purview's maximum entropy
         # distribution.
-        purview_indices = utils.nodes2indices(purview)
-        if not mechanism:
-            return utils.max_entropy_distribution(purview_indices,
-                                                  self.network.size)
+        purview_indices = convert.nodes2indices(purview)
+
         # If the purview is empty, the distribution is empty, so return the
         # multiplicative identity.
         if not purview:
             return np.array([1])
+        # Calculate the maximum entropy distribution. If there is no mechanism,
+        # return it.
+        max_entropy_dist = utils.max_entropy_distribution(
+            purview_indices,
+            self.network.size,
+            [self.perturb_vector[i] for i in purview_indices])
+        if not mechanism:
+            return max_entropy_dist
         # Preallocate the mechanism's conditional joint distribution.
         # TODO extend to nonbinary nodes
         cjd = np.ones(tuple(2 if i in purview_indices else
@@ -176,17 +190,22 @@ class Subsystem:
             non_purview_inputs = inputs - set(purview)
             # Marginalize-out the non-purview inputs.
             for node in non_purview_inputs:
-                conditioned_tpm = (conditioned_tpm.sum(node.index,
-                                                       keepdims=True)
-                                   / conditioned_tpm.shape[node.index])
+                conditioned_tpm = utils.marginalize_out(
+                    node.index,
+                    conditioned_tpm,
+                    self.perturb_vector[node.index])
             # Incorporate this node's CPT into the mechanism's conditional
             # joint distribution by taking the product (with singleton
             # broadcasting, which spreads the singleton probabilities in the
             # collapsed dimensions out along the whole distribution in the
             # appropriate way.
             cjd *= conditioned_tpm
+        # If the perturbation vector is not maximum entropy, then weight the
+        # probabilities before normalization.
+        if not np.all(self.perturb_vector == 0.5):
+            cjd *= max_entropy_dist
         # Finally, normalize to get the mechanism's actual conditional joint
-        # ditribution.
+        # distribution.
         cjd_sum = np.sum(cjd)
         # Don't divide by zero
         if cjd_sum != 0:
@@ -199,7 +218,7 @@ class Subsystem:
         # whole comparisons are only ever done over the same purview.
         return cjd
 
-    @lru_cache(maxmem=constants.MAXIMUM_CACHE_MEMORY_PERCENTAGE)
+    @lru_cache(maxmem=config.MAXIMUM_CACHE_MEMORY_PERCENTAGE)
     def effect_repertoire(self, mechanism, purview):
         """Return the effect repertoire of a mechanism over a purview.
 
@@ -222,7 +241,7 @@ class Subsystem:
         # ``conditioned_tpm`` is ``next_denom_node_distribution``
         # ``accumulated_cjd`` is ``denom_conditional_joint``
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        purview_indices = utils.nodes2indices(purview)
+        purview_indices = convert.nodes2indices(purview)
         # If the purview is empty, the distribution is empty, so return the
         # multiplicative identity.
         if not purview:
@@ -265,8 +284,7 @@ class Subsystem:
             # Marginalize-out non-mechanism purview inputs.
             non_mechanism_inputs = inputs - set(mechanism)
             for node in non_mechanism_inputs:
-                tpm = (tpm.sum(node.index, keepdims=True)
-                       / tpm.shape[node.index])
+                tpm = utils.marginalize_out(node.index, tpm, self.perturb_vector[node.index])
             # Incorporate this node's CPT into the future_nodes' conditional
             # joint distribution by taking the product (with singleton
             # broadcasting).
@@ -278,7 +296,7 @@ class Subsystem:
         # Collect all nodes with inputs to any purview node.
         inputs_to_purview = set.union(*[set(node.inputs) for node in purview])
         # Collect mechanism nodes with inputs to any purview node.
-        fixed_inputs = utils.nodes2indices(inputs_to_purview & set(mechanism))
+        fixed_inputs = convert.nodes2indices(inputs_to_purview & set(mechanism))
         # Initialize the conditioning indices, taking the slices as singleton
         # lists-of-lists for later flattening with `chain`.
         accumulated_cjd = utils.condition_tpm(
@@ -434,7 +452,8 @@ class Subsystem:
         repertoire = self._get_repertoire(direction)
 
         # We default to the null MIP (the MIP of a reducible mechanism)
-        mip = self._null_mip(direction, mechanism, purview)
+        null_mip = self._null_mip(direction, mechanism, purview)
+        mip = null_mip
 
         phi_min = float('inf')
         # Calculate the unpartitioned repertoire to compare against the
@@ -453,9 +472,15 @@ class Subsystem:
             phi = utils.hamming_emd(unpartitioned_repertoire,
                                     partitioned_repertoire)
 
-            # Return immediately if mechanism is reducible
+            # Return immediately if mechanism is reducible.
             if phi < constants.EPSILON:
-                return None
+                return Mip(direction=direction,
+                           mechanism=mechanism,
+                           purview=purview,
+                           partition=(part0, part1),
+                           unpartitioned_repertoire=unpartitioned_repertoire,
+                           partitioned_repertoire=partitioned_repertoire,
+                           phi=0.0)
             # Update MIP if it's more minimal. We take the bigger purview if
             # the the phi values are indistinguishable.
             if ((phi_min - phi) > constants.EPSILON or (
@@ -519,7 +544,7 @@ class Subsystem:
     # =========================================================================
 
     # TODO test phi max helpers
-    @lru_cache(maxmem=constants.MAXIMUM_CACHE_MEMORY_PERCENTAGE)
+    @lru_cache(maxmem=config.MAXIMUM_CACHE_MEMORY_PERCENTAGE)
     def _test_connections(self, axis, nodes1, nodes2):
         """Tests connectivity of one set of nodes to another.
 
@@ -586,7 +611,7 @@ class Subsystem:
                 return cached
         return False
 
-    def find_mice(self, direction, mechanism):
+    def find_mice(self, direction, mechanism, purviews=False):
         """Return the maximally irreducible cause or effect for a mechanism.
 
         Args:
@@ -594,6 +619,12 @@ class Subsystem:
                 effect.
             mechanism (tuple(Node)): The mechanism to be tested for
                 irreducibility.
+
+        Keyword Args:
+            purviews (tuple(Node)): Optionally restrict the possible purviews
+                to a subset of the subsystem. This may be useful for _e.g._
+                finding only concepts that are "about" a certain subset of
+                nodes.
 
         Returns:
             :class:`pyphi.models.Mice`
@@ -613,8 +644,10 @@ class Subsystem:
             return cached_mice
 
         validate.direction(direction)
-        # Get all possible purviews.
-        purviews = utils.powerset(self.nodes)
+
+        if not purviews:
+            # Get all possible purviews.
+            purviews = utils.powerset(self.nodes)
 
         def not_trivially_reducible(purview):
             if direction == DIRECTIONS[PAST]:
@@ -625,6 +658,9 @@ class Subsystem:
         # Filter out trivially reducible purviews if a connectivity matrix was
         # provided.
         purviews = tuple(filter(not_trivially_reducible, purviews))
+        # If no purviews are left, return a null MICE immediately.
+        if not purviews:
+            return Mice(self._null_mip(direction, mechanism, None))
         # Find the maximal MIP over all purviews.
         maximal_mip = max(self.find_mip(direction, mechanism, purview) for
                           purview in purviews)
@@ -632,27 +668,27 @@ class Subsystem:
         mice = Mice(maximal_mip)
         # Store the MICE if there was no cut, since some future cuts won't
         # effect it and it can be reused.
-        key = (direction, utils.nodes2indices(mechanism))
+        key = (direction, convert.nodes2indices(mechanism))
         current_process = psutil.Process(os.getpid())
         not_full = (current_process.memory_percent() <
-                    constants.MAXIMUM_CACHE_MEMORY_PERCENTAGE)
+                    config.MAXIMUM_CACHE_MEMORY_PERCENTAGE)
         if (self.cut == self.null_cut
                 and key not in self._mice_cache
                 and not_full):
             self._mice_cache[key] = mice
         return mice
 
-    def core_cause(self, mechanism):
+    def core_cause(self, mechanism, purviews=False):
         """Returns the core cause repertoire of a mechanism.
 
         Alias for :func:`find_mice` with ``direction`` set to |past|."""
-        return self.find_mice('past', mechanism)
+        return self.find_mice('past', mechanism, purviews=purviews)
 
-    def core_effect(self, mechanism):
+    def core_effect(self, mechanism, purviews=False):
         """Returns the core effect repertoire of a mechanism.
 
         Alias for :func:`find_mice` with ``direction`` set to |past|."""
-        return self.find_mice('future', mechanism)
+        return self.find_mice('future', mechanism, purviews=purviews)
 
     def phi_max(self, mechanism):
         """Return the |phi_max| of a mechanism.

@@ -24,7 +24,18 @@ module.exports = (grunt) ->
           stdout: true
           failOnError: true
       openDocs:
-        command: "google-chrome docs/_build/html/index.html"
+        command: "open docs/_build/html/index.html"
+      uploadGithubDocs:
+        command: [
+          "cp -r docs/_build/html/* ../pyphi-docs"
+          "cd ../pyphi-docs"
+          "git commit -a -m 'Update docs'"
+          "git push origin gh-pages"
+          "cd ../pyphi"
+        ].join "&&"
+        options:
+          stdout: true
+          failOnError: true
       openCoverage:
         command: "open htmlcov/index.html"
 
@@ -37,6 +48,10 @@ module.exports = (grunt) ->
           "<%= cfg.docDir %>/**/*"
           "!<%= cfg.docDir %>/_*/**/*"
           "<%= cfg.docDir %>/_static/**/*"
+          "!**/pyphi.log"
+          "!**/__pyphi_cache__"
+          "!**/__pyphi_cache__.BACKUP"
+          "!**/*.pyc"
         ]
         tasks: ["shell:buildDocs"]
       test:
@@ -60,9 +75,17 @@ module.exports = (grunt) ->
     "watch:test"
   ]
   grunt.registerTask "docs", [
-    "shell:openDocs"
     "shell:buildDocs"
+    "shell:openDocs"
+  ]
+  grunt.registerTask "watch-docs", [
+    "shell:buildDocs"
+    "shell:openDocs"
     "watch:docs"
+  ]
+  grunt.registerTask "upload-github-docs", [
+    "shell:buildDocs"
+    "shell:uploadGithubDocs"
   ]
   grunt.registerTask "test", [
     "shell:test"

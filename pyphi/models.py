@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+# models.py
 """
-Models
-~~~~~~
-
 Containers for MICE, MIP, cut, partition, and concept data.
 """
 
@@ -12,7 +10,7 @@ from collections import namedtuple, Iterable
 import numpy as np
 
 from .constants import DIRECTIONS, PAST, FUTURE
-from . import utils, constants
+from . import utils, constants, config, convert, json
 
 # TODO use properties to avoid data duplication
 
@@ -29,8 +27,11 @@ class Cut(namedtuple('Cut', ['severed', 'intact'])):
             Connections to this group of nodes from those in ``severed`` are
             severed.
     """
-
-    pass
+    def json_dict(self):
+        return {
+            'severed': json.make_encodable(self.severed),
+            'intact': json.make_encodable(self.intact)
+        }
 
 
 class Part(namedtuple('Part', ['mechanism', 'purview'])):
@@ -53,8 +54,11 @@ class Part(namedtuple('Part', ['mechanism', 'purview'])):
 
         This class represents one term in the above product.
     """
-
-    pass
+    def json_dict(self):
+        return {
+            'mechanism': json.make_encodable(self.mechanism),
+            'purview': json.make_encodable(self.purview)
+        }
 
 
 # Phi-ordering methods
@@ -225,6 +229,12 @@ class Mip(namedtuple('Mip', _mip_attributes)):
         return hash((self.phi, self.direction, self.mechanism, self.purview,
                      utils.np_hash(self.unpartitioned_repertoire)))
 
+    def json_dict(self):
+        return {
+            attr: json.make_encodable(getattr(self, attr))
+            for attr in _mip_attributes
+        }
+
     # Order by phi value, then by mechanism size
     __lt__ = _phi_then_mechanism_size_lt
     __gt__ = _phi_then_mechanism_size_gt
@@ -251,7 +261,7 @@ class Mice:
         # TODO remove?
         if (self.repertoire is not None and
             any(self.repertoire.shape[i] != 2 for i in
-                utils.nodes2indices(self.purview))):
+                convert.nodes2indices(self.purview))):
             raise Exception("Attempted to create MICE with mismatched purview "
                             "and repertoire.")
 
@@ -312,6 +322,11 @@ class Mice:
 
     def __hash__(self):
         return hash(('Mice', self._mip))
+
+    def json_dict(self):
+        return {
+            "mip": json.make_encodable(self._mip)
+        }
 
     # Order by phi value, then by mechanism size
     __lt__ = _phi_then_mechanism_size_lt
@@ -399,19 +414,48 @@ class Concept(namedtuple('Concept', _concept_attributes)):
         EMD calculation."""
         return self.mechanism == other.mechanism and self.eq_repertoires(other)
 
+    # TODO Rename to expanded_cause_repertoire, etc
     def expand_cause_repertoire(self):
         """Expands a cause repertoire to be a distribution over an entire
         network."""
-        return self.subsystem.expand_repertoire(DIRECTIONS[PAST],
-                                                self.cause.purview,
-                                                self.cause.repertoire)
+        return self.subsystem.expand_cause_repertoire(self.cause.purview,
+                                                      self.cause.repertoire)
 
     def expand_effect_repertoire(self):
         """Expands an effect repertoire to be a distribution over an entire
         network."""
-        return self.subsystem.expand_repertoire(DIRECTIONS[FUTURE],
-                                                self.effect.purview,
-                                                self.effect.repertoire)
+        return self.subsystem.expand_effect_repertoire(self.effect.purview,
+                                                       self.effect.repertoire)
+
+    def expand_partitioned_cause_repertoire(self):
+        """Expands a partitioned cause repertoire to be a distribution over an
+        entire network."""
+        return self.subsystem.expand_cause_repertoire(
+            self.cause.purview,
+            self.cause.mip.partitioned_repertoire)
+
+    def expand_partitioned_effect_repertoire(self):
+        """Expands a partitioned effect repertoire to be a distribution over an
+        entire network."""
+        return self.subsystem.expand_effect_repertoire(
+            self.effect.purview,
+            self.effect.mip.partitioned_repertoire)
+
+    def json_dict(self):
+        d = {
+            attr: json.make_encodable(getattr(self, attr))
+            for attr in ['phi', 'mechanism', 'cause', 'effect']
+        }
+        # Expand the repertoires.
+        d['cause']['repertoire'] = json.make_encodable(
+            self.expand_cause_repertoire().flatten())
+        d['effect']['repertoire'] = json.make_encodable(
+            self.expand_effect_repertoire().flatten())
+        d['cause']['partitioned_repertoire'] = json.make_encodable(
+            self.expand_partitioned_cause_repertoire().flatten())
+        d['effect']['partitioned_repertoire'] = json.make_encodable(
+            self.expand_partitioned_effect_repertoire().flatten())
+        return d
 
     # Order by phi value, then by mechanism size
     __lt__ = _phi_then_mechanism_size_lt
@@ -500,3 +544,9 @@ class BigMip(namedtuple('BigMip', _bigmip_attributes)):
     def __ge__(self, other):
         return (self.__gt__(other) or
                 _phi_eq(self, other))
+
+    def json_dict(self):
+        return {
+            attr: json.make_encodable(getattr(self, attr))
+            for attr in _bigmip_attributes
+        }

@@ -5,12 +5,13 @@ import pickle
 import pytest
 import numpy as np
 
-from pyphi import constants, compute, models, utils, Network
+from pyphi import constants, config, compute, models, utils, convert, Network
 from pyphi.constants import DIRECTIONS, PAST, FUTURE
 
 
 # Precision for testing.
 PRECISION = 5
+
 
 # Answers
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -143,6 +144,30 @@ rule152_answer = {
 }
 
 
+micro_answer = {
+    'phi': 0.97441,
+    'unpartitioned_small_phis': {
+        (0,): 0.175,
+        (1,): 0.175,
+        (2,): 0.175,
+        (3,): 0.175,
+        (0, 1): 0.34811,
+        (2, 3): 0.34811,
+    },
+    'cut': models.Cut(severed=(0, 2), intact=(1, 3))
+}
+
+
+macro_answer = {
+    'phi': 0.86905,
+    'unpartitioned_small_phis': {
+        (0,): 0.455,
+        (1,): 0.455,
+    },
+    'cut': models.Cut(severed=(0,), intact=(1,))
+}
+
+
 # Helpers
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -152,7 +177,7 @@ def check_unpartitioned_small_phis(small_phis, unpartitioned_constellation):
     for c in unpartitioned_constellation:
         np.testing.assert_almost_equal(
             c.phi,
-            small_phis[utils.nodes2indices(c.mechanism)],
+            small_phis[convert.nodes2indices(c.mechanism)],
             PRECISION)
 
 
@@ -239,58 +264,58 @@ def test_big_mip_wrappers(reducible, flushcache, restore_fs_cache):
 
 def test_big_mip_single_node(s_single, flushcache, restore_fs_cache):
     flushcache()
-    initial_option = constants.SINGLE_NODES_WITH_SELFLOOPS_HAVE_PHI
-    constants.SINGLE_NODES_WITH_SELFLOOPS_HAVE_PHI = True
+    initial_option = config.SINGLE_NODES_WITH_SELFLOOPS_HAVE_PHI
+    config.SINGLE_NODES_WITH_SELFLOOPS_HAVE_PHI = True
     assert compute.big_mip(s_single).phi == 0.5
-    constants.SINGLE_NODES_WITH_SELFLOOPS_HAVE_PHI = False
+    config.SINGLE_NODES_WITH_SELFLOOPS_HAVE_PHI = False
     assert compute.big_mip(s_single).phi == 0.0
-    constants.SINGLE_NODES_WITH_SELFLOOPS_HAVE_PHI = initial_option
+    config.SINGLE_NODES_WITH_SELFLOOPS_HAVE_PHI = initial_option
 
 
 def test_big_mip_standard_example_sequential(s, flushcache, restore_fs_cache):
     flushcache()
-    initial = constants.PARALLEL_CUT_EVALUATION
-    constants.PARALLEL_CUT_EVALUATION = False
+    initial = config.PARALLEL_CUT_EVALUATION
+    config.PARALLEL_CUT_EVALUATION = False
 
     mip = compute.big_mip(s)
     check_mip(mip, standard_answer)
 
-    constants.PARALLEL_CUT_EVALUATION = initial
+    config.PARALLEL_CUT_EVALUATION = initial
 
 
 def test_big_mip_standard_example_parallel(s, flushcache, restore_fs_cache):
     flushcache()
-    initial = (constants.PARALLEL_CUT_EVALUATION, constants.NUMBER_OF_CORES)
-    constants.PARALLEL_CUT_EVALUATION, constants.NUMBER_OF_CORES = True, -2
+    initial = (config.PARALLEL_CUT_EVALUATION, config.NUMBER_OF_CORES)
+    config.PARALLEL_CUT_EVALUATION, config.NUMBER_OF_CORES = True, -2
 
     mip = compute.big_mip(s)
     check_mip(mip, standard_answer)
 
-    constants.PARALLEL_CUT_EVALUATION, constants.NUMBER_OF_CORES = initial
+    config.PARALLEL_CUT_EVALUATION, config.NUMBER_OF_CORES = initial
 
 
 def test_big_mip_noised_example_sequential(s_noised, flushcache,
                                            restore_fs_cache):
     flushcache()
-    initial = constants.PARALLEL_CUT_EVALUATION
-    constants.PARALLEL_CUT_EVALUATION = False
+    initial = config.PARALLEL_CUT_EVALUATION
+    config.PARALLEL_CUT_EVALUATION = False
 
     mip = compute.big_mip(s_noised)
     check_mip(mip, noised_answer)
 
-    constants.PARALLEL_CUT_EVALUATION = initial
+    config.PARALLEL_CUT_EVALUATION = initial
 
 
 def test_big_mip_noised_example_parallel(s_noised, flushcache,
                                          restore_fs_cache):
     flushcache()
-    initial = (constants.PARALLEL_CUT_EVALUATION, constants.NUMBER_OF_CORES)
-    constants.PARALLEL_CUT_EVALUATION, constants.NUMBER_OF_CORES = True, -2
+    initial = (config.PARALLEL_CUT_EVALUATION, config.NUMBER_OF_CORES)
+    config.PARALLEL_CUT_EVALUATION, config.NUMBER_OF_CORES = True, -2
 
     mip = compute.big_mip(s_noised)
     check_mip(mip, noised_answer)
 
-    constants.PARALLEL_CUT_EVALUATION, constants.NUMBER_OF_CORES = initial
+    config.PARALLEL_CUT_EVALUATION, config.NUMBER_OF_CORES = initial
 
 
 # TODO!! add more assertions for the smaller subsystems
@@ -298,8 +323,6 @@ def test_complexes_standard(standard, flushcache, restore_fs_cache):
     flushcache()
     complexes = list(compute.complexes(standard))
     check_mip(complexes[7], standard_answer)
-
-# Connectivity matrix
 
 
 def test_big_mip_complete_graph_standard_example(s_complete):
@@ -396,3 +419,16 @@ def test_rule152_complexes_no_caching(rule152):
                         in enumerate(main.unpartitioned_constellation)))
         # Check that the minimal cut is the same.
         assert main.cut == result['cut']
+
+
+def test_big_mip_micro(micro_s, flushcache, restore_fs_cache):
+    flushcache()
+    mip = compute.big_mip(micro_s)
+    check_mip(mip, micro_answer)
+
+
+@pytest.mark.filter
+def test_big_mip_macro(macro_s, flushcache, restore_fs_cache):
+    flushcache()
+    mip = compute.big_mip(macro_s)
+    check_mip(mip, macro_answer)
